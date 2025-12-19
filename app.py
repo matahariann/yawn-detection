@@ -153,7 +153,7 @@ st.markdown("""
 # Header
 # ---------------------------
 st.markdown("# 🥱 Yawn Detection AI")
-st.markdown('<p class="subtitle">Deteksi menguap secara real-time menggunakan YOLOv8</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Deteksi menguap menggunakan YOLOv8</p>', unsafe_allow_html=True)
 
 # ---------------------------
 # Utils
@@ -357,8 +357,8 @@ with tab_vid:
                     st.success("✅ Selesai! Video berhasil diproses")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("**🎯 Hasil Deteksi Video**")
-                    st.video(out_path)
+                    # st.markdown("**🎯 Hasil Deteksi Video**")
+                    # st.video(out_path)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     with open(out_path, "rb") as f:
