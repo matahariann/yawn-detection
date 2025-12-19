@@ -1,12 +1,12 @@
 import os
 import tempfile
 from pathlib import Path
-import time
-
-import cv2
+import av
 import numpy as np
 import streamlit as st
 from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import cv2
 
 st.set_page_config(
     page_title="Yawn Detection AI",
@@ -20,20 +20,16 @@ st.set_page_config(
 # ---------------------------
 st.markdown("""
 <style>
-    /* Import Google Font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Global styling */
     * {
         font-family: 'Inter', sans-serif;
     }
     
-    /* Main container */
     .main {
         padding: 2rem 3rem;
     }
     
-    /* Header styling */
     h1 {
         font-weight: 700;
         font-size: 2.5rem;
@@ -50,7 +46,6 @@ st.markdown("""
         font-weight: 400;
     }
     
-    /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: #f8fafc;
@@ -73,7 +68,6 @@ st.markdown("""
         color: white !important;
     }
     
-    /* Button styling */
     .stButton > button {
         width: 100%;
         border-radius: 10px;
@@ -93,7 +87,6 @@ st.markdown("""
         background: linear-gradient(120deg, #667eea 0%, #764ba2 100%);
     }
     
-    /* File uploader styling */
     .stFileUploader {
         border: 2px dashed #cbd5e1;
         border-radius: 12px;
@@ -107,22 +100,11 @@ st.markdown("""
         background-color: #f1f5f9;
     }
     
-    /* Card styling */
-    .card {
-        background: white;
-        border-radius: 16px;
-        padding: 1.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        border: 1px solid #e2e8f0;
-    }
-    
-    /* Info boxes */
     .stAlert {
         border-radius: 12px;
         border-left: 4px solid #667eea;
     }
     
-    /* Divider */
     hr {
         margin: 2rem 0;
         border: none;
@@ -130,7 +112,6 @@ st.markdown("""
         background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
     }
     
-    /* Status badges */
     .status-badge {
         display: inline-block;
         padding: 0.5rem 1rem;
@@ -144,33 +125,24 @@ st.markdown("""
         color: #16a34a;
     }
     
-    .status-inactive {
-        background: #f1f5f9;
-        color: #64748b;
-    }
-    
-    /* Video container */
     .stVideo {
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
-    /* Image container */
     .stImage {
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
-    /* Subheader styling */
     h3 {
         color: #1e293b;
         font-weight: 600;
         margin-bottom: 1rem;
     }
     
-    /* Progress bar */
     .stProgress > div > div {
         background: linear-gradient(120deg, #667eea 0%, #764ba2 100%);
     }
@@ -181,7 +153,7 @@ st.markdown("""
 # Header
 # ---------------------------
 st.markdown("# 🥱 Yawn Detection AI")
-st.markdown('<p class="subtitle">Deteksi menguap menggunakan YOLOv8</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Deteksi menguap secara real-time menggunakan YOLOv8</p>', unsafe_allow_html=True)
 
 # ---------------------------
 # Utils
@@ -295,13 +267,21 @@ if not Path(default_weights).exists():
 model = load_model(default_weights)
 
 # ---------------------------
-# Initialize Session State
+# WebRTC Video Processor
 # ---------------------------
-if "webcam_running" not in st.session_state:
-    st.session_state.webcam_running = False
-
-if "stop_webcam" not in st.session_state:
-    st.session_state.stop_webcam = False
+class YawnDetectionProcessor:
+    def __init__(self):
+        self.model = model
+        self.conf = conf
+        self.imgsz = imgsz
+    
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        
+        # Run YOLO detection
+        annotated = infer_image_bgr(self.model, img, imgsz=self.imgsz, conf=self.conf)
+        
+        return av.VideoFrame.from_ndarray(annotated, format="bgr24")
 
 # ---------------------------
 # Tabs
@@ -399,81 +379,34 @@ with tab_cam:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        if st.button(
-            "▶️ Mulai Webcam",
-            type="primary",
-            disabled=st.session_state.webcam_running,
-            key="start_webcam_btn",
-            use_container_width=True
-        ):
-            st.session_state.webcam_running = True
-            st.session_state.stop_webcam = False
-    
-    with col2:
-        if st.button(
-            "⏹️ Hentikan",
-            disabled=not st.session_state.webcam_running,
-            key="stop_webcam_btn",
-            use_container_width=True
-        ):
-            st.session_state.stop_webcam = True
-            st.session_state.webcam_running = False
-    
-    with col3:
-        if st.session_state.webcam_running:
-            st.markdown('<span class="status-badge status-active">🟢 Webcam Aktif</span>', unsafe_allow_html=True)
-        else:
-            st.markdown('<span class="status-badge status-inactive">⚪ Webcam Tidak Aktif</span>', unsafe_allow_html=True)
+    st.info("💡 **Cara Menggunakan:**\n"
+            "1. Klik tombol **START** di bawah ini\n"
+            "2. Browser akan meminta izin akses webcam - klik **Allow/Izinkan**\n"
+            "3. Webcam akan mulai mendeteksi menguap secara real-time\n"
+            "4. Klik **STOP** untuk menghentikan")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.divider()
     
-    # Placeholder untuk frame
-    frame_placeholder = st.empty()
+    # RTC Configuration for better connectivity
+    RTC_CONFIGURATION = RTCConfiguration(
+        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    )
     
-    # Webcam loop
-    if st.session_state.webcam_running:
-        cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        if not cap.isOpened():
-            st.error("❌ Tidak dapat mengakses webcam. Pastikan webcam terhubung dan tidak digunakan aplikasi lain.")
-            st.session_state.webcam_running = False
-        else:
-            try:
-                # Loop untuk membaca frame
-                while st.session_state.webcam_running and not st.session_state.stop_webcam:
-                    ret, frame = cap.read()
-                    
-                    if not ret:
-                        st.error("❌ Gagal membaca frame dari webcam")
-                        st.session_state.webcam_running = False
-                        break
-                    
-                    # Proses deteksi
-                    annotated = infer_image_bgr(model, frame, imgsz=imgsz, conf=conf)
-                    
-                    # Tampilkan frame
-                    frame_placeholder.image(
-                        cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                        channels="RGB",
-                        use_column_width=True
-                    )
-                    
-                    # Small delay to reduce CPU usage
-                    time.sleep(0.01)
-                        
-            finally:
-                cap.release()
-                cv2.destroyAllWindows()
-                if st.session_state.stop_webcam:
-                    frame_placeholder.info("💡 Klik tombol **Mulai Webcam** untuk memulai deteksi real-time")
+    # WebRTC Streamer
+    webrtc_ctx = webrtc_streamer(
+        key="yawn-detection",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=RTC_CONFIGURATION,
+        video_processor_factory=YawnDetectionProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if webrtc_ctx.state.playing:
+        st.markdown('<span class="status-badge status-active">🟢 Webcam Aktif</span>', unsafe_allow_html=True)
     else:
-        frame_placeholder.info("💡 Klik tombol **Mulai Webcam** untuk memulai deteksi real-time")
+        st.markdown("💡 Klik **START** untuk memulai deteksi webcam")
 
 st.divider()
